@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Match Mix</title>
+    <style>
+        :root {
+            --accent: #00f2fe;
+            --danger: #ff4757;
+            --success: #2ecc71;
+            --glass: rgba(255, 255, 255, 0.2);
+        }
+
+        body {
+            margin: 0; font-family: 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(180deg, #1e3799 0%, #00d2ff 100%);
+            height: 100vh; color: white; overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+
+        /* Animated Background */
+        .ocean { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+        .fish { position: absolute; font-size: 2.5rem; animation: swim linear infinite; filter: drop-shadow(0 5px 15px rgba(0,0,0,0.2)); }
+        @keyframes swim { from { left: -100px; } to { left: 110vw; } }
+
+        /* UI Elements */
+        .header {
+            padding: 20px; display: flex; justify-content: space-around;
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(15px);
+            border-bottom: 3px solid var(--accent);
+        }
+        .stat-val { font-size: 1.6rem; font-weight: 900; color: var(--accent); display: block; text-shadow: 0 2px 10px rgba(0,242,254,0.5); }
+        .stat-lbl { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; }
+
+        #grid { 
+            display: grid; gap: 12px; padding: 20px; margin: auto;
+            justify-content: center; align-content: center;
+        }
+
+        .card {
+            width: 75px; height: 75px; background: var(--glass);
+            border-radius: 18px; display: flex; align-items: center;
+            justify-content: center; font-size: 2.2rem; cursor: pointer;
+            transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 2px solid rgba(255,255,255,0.3);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            user-select: none;
+        }
+        .card.flipped { background: white; transform: rotateY(180deg); color: #222; border-color: white; }
+        .card.matched { transform: scale(0); opacity: 0; pointer-events: none; }
+
+        /* Overlays */
+        .overlay {
+            position: fixed; inset: 0; background: rgba(0, 20, 40, 0.9);
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; z-index: 100; backdrop-filter: blur(12px);
+        }
+        
+        .panel {
+            background: rgba(255,255,255,0.1); padding: 50px 30px; border-radius: 30px;
+            border: 3px solid var(--accent); text-align: center; width: 80%;
+            box-shadow: 0 0 50px rgba(0, 242, 254, 0.2);
+        }
+
+        .btn {
+            background: var(--accent); color: #1e3799; border: none;
+            padding: 18px 50px; border-radius: 50px; font-weight: 900;
+            font-size: 1.3rem; cursor: pointer; margin-top: 25px;
+            transition: 0.3s; box-shadow: 0 10px 25px rgba(0,242,254,0.3);
+        }
+        .btn:active { transform: scale(0.95); }
+
+        .title { font-size: 4rem; font-weight: 900; margin: 0; text-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+        
+        /* Low Moves Animation */
+        @keyframes alert { 0%, 100% { color: var(--accent); } 50% { color: var(--danger); transform: scale(1.2); } }
+        .warning { animation: alert 0.6s infinite; }
+
+        #gameUI, #roundScreen, #gameOver { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="ocean">
+        <div class="fish" style="top:15%; animation-duration: 20s;">🐠</div>
+        <div class="fish" style="top:40%; animation-duration: 12s;">🐟</div>
+        <div class="fish" style="top:70%; animation-duration: 25s;">🐡</div>
+    </div>
+
+    <div id="startScreen" class="overlay">
+        <h1 class="title">MATCH MIX</h1>
+        <p style="letter-spacing: 3px; font-weight: bold;">OCEAN ODYSSEY</p>
+        <button class="btn" onclick="initGame()">START GAME</button>
+    </div>
+
+    <div id="gameUI" style="height: 100%; flex-direction: column;">
+        <div class="header">
+            <div style="text-align:center"><span class="stat-lbl">Score</span><span class="stat-val" id="score">0</span></div>
+            <div style="text-align:center"><span class="stat-lbl">Moves</span><span class="stat-val" id="moves">0</span></div>
+            <div style="text-align:center"><span class="stat-lbl">Best</span><span class="stat-val" id="best">0</span></div>
+        </div>
+        <div id="grid"></div>
+    </div>
+
+    <div id="roundScreen" class="overlay">
+        <h1 id="roundTxt" style="font-size: 5rem; font-weight: 900; color: var(--accent);">ROUND 1</h1>
+    </div>
+
+    <div id="gameOver" class="overlay">
+        <div class="panel">
+            <h1 style="color: var(--danger); font-size: 3.5rem; margin:0;">GAME OVER</h1>
+            <p id="finalMsg" style="font-size: 1.5rem; margin: 25px 0; font-weight: bold;"></p>
+            <button class="btn" onclick="location.reload()">PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <script>
+        const fruits = ['🍎','🍐','🍋','🍌','🍉','🍓','🫐','🍒','🍑','🍍','🥥','🥝','🍇','🥑'];
+        let state = {
+            round: 1, score: 0, 
+            best: localStorage.getItem('mm_best_infinite') || 0,
+            flipped: [], matched: 0, total: 0,
+            moves: 0, isLock: true
+        };
+
+        // --- Sound System ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSfx(freq, type, dur, vol = 0.1) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + dur);
+        }
+
+        function initGame() {
+            audioCtx.resume();
+            playSfx(523.25, 'sine', 0.5); // C5 Chime
+            document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('gameUI').style.display = 'flex';
+            document.getElementById('best').innerText = state.best;
+            nextRoundTransition();
+        }
+
+        function nextRoundTransition() {
+            state.isLock = true;
+            const rs = document.getElementById('roundScreen');
+            document.getElementById('roundTxt').innerText = `ROUND ${state.round}`;
+            rs.style.display = 'flex';
+            
+            playSfx(880, 'sine', 0.3, 0.05); // Round start beep
+
+            setTimeout(() => {
+                rs.style.display = 'none';
+                setupBoard();
+            }, 1500);
+        }
+
+        function setupBoard() {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+            
+            state.total = Math.min(1 + state.round, 12);
+            // Move Formula: Hard mode (1.5x pairs)
+            state.moves = Math.ceil(state.total * 1.5) + 1;
+            state.matched = 0;
+            state.flipped = [];
+            state.isLock = false;
+            
+            updateUI();
+
+            let deck = [...fruits.slice(0, state.total), ...fruits.slice(0, state.total)]
+                       .sort(() => Math.random() - 0.5);
+
+            grid.style.gridTemplateColumns = `repeat(${state.total > 4 ? 4 : 3}, 75px)`;
+
+            deck.forEach(f => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.dataset.val = f;
+                card.innerText = '?';
+                card.onclick = () => flipCard(card);
+                grid.appendChild(card);
+            });
+        }
+
+        function flipCard(card) {
+            if (state.isLock || card.classList.contains('flipped')) return;
+
+            playSfx(400, 'sine', 0.1);
+            card.classList.add('flipped');
+            card.innerText = card.dataset.val;
+            state.flipped.push(card);
+
+            if (state.flipped.length === 2) {
+                state.isLock = true;
+                state.moves--;
+                updateUI();
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            const [c1, c2] = state.flipped;
+            
+            if (c1.dataset.val === c2.dataset.val) {
+                setTimeout(() => {
+                    playSfx(600, 'square', 0.2, 0.05); // Success "pop"
+                    c1.classList.add('matched');
+                    c2.classList.add('matched');
+                    state.score += (state.round * 100);
+                    state.matched++;
+                    state.flipped = [];
+                    updateUI();
+                    
+                    if (state.matched === state.total) {
+                        state.round++;
+                        setTimeout(nextRoundTransition, 600);
+                    } else {
+                        state.isLock = false;
+                    }
+                }, 400);
+            } else {
+                setTimeout(() => {
+                    playSfx(150, 'sawtooth', 0.3, 0.1); // Fail "buzz"
+                    c1.classList.remove('flipped');
+                    c2.classList.remove('flipped');
+                    c1.innerText = '?';
+                    c2.innerText = '?';
+                    state.flipped = [];
+                    
+                    if (state.moves <= 0) {
+                        endGame();
+                    } else {
+                        state.isLock = false;
+                    }
+                }, 800);
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('score').innerText = state.score;
+            const moveDisp = document.getElementById('moves');
+            moveDisp.innerText = state.moves;
+            
+            if (state.moves <= 3) moveDisp.className = 'stat-val warning';
+            else moveDisp.className = 'stat-val';
+        }
+
+        function endGame() {
+            if (state.score > state.best) localStorage.setItem('mm_best_infinite', state.score);
+            document.getElementById('finalMsg').innerText = `Round: ${state.round} \n Score: ${state.score}`;
+            document.getElementById('gameOver').style.display = 'flex';
+        }
+    </script>
+</body>
+</html>
+
